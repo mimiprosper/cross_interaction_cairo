@@ -10,12 +10,12 @@ pub trait IERC20<TContractState> {
     fn allowance(self: @TContractState, owner: ContractAddress, spender: ContractAddress) -> u256;
     fn transfer(ref self: TContractState, recipient: ContractAddress, amount: u256);
     fn transfer_from(
-        ref self: TContractState, sender: ContractAddress, recipient: ContractAddress, amount: u256
+        ref self: TContractState, sender: ContractAddress, recipient: ContractAddress, amount: u256,
     );
     fn approve(ref self: TContractState, spender: ContractAddress, amount: u256);
     fn increase_allowance(ref self: TContractState, spender: ContractAddress, added_value: u256);
     fn decrease_allowance(
-        ref self: TContractState, spender: ContractAddress, subtracted_value: u256
+        ref self: TContractState, spender: ContractAddress, subtracted_value: u256,
     );
     fn mint(ref self: TContractState, account: ContractAddress, amount: u256);
 }
@@ -26,6 +26,7 @@ pub mod ERC20 {
     use super::IERC20;
     use super::ContractAddress;
     use starknet::storage::{Map, StorageMapReadAccess, StorageMapWriteAccess};
+    // use crossinteract::vault::{IVaultDispatcher, IVaultDispatcherTrait};
     const TOTAL_SUPPLY: u256 = 100_000_000;
     const DECIMALS: u8 = 18;
     #[storage]
@@ -43,6 +44,7 @@ pub mod ERC20 {
         // allownaces for third party contracts
         allowances: Map::<(ContractAddress, ContractAddress), u256>,
     }
+
     #[constructor]
     fn constructor(ref self: ContractState, name: ByteArray, symbol: ByteArray) {
         self.name.write(name);
@@ -58,38 +60,44 @@ pub mod ERC20 {
     }
     #[derive(Drop, starknet::Event)]
     pub struct Transfer {
-        pub from: ContractAddress,
-        pub to: ContractAddress,
-        pub value: u256,
+        pub from: ContractAddress, // person transfering
+        pub to: ContractAddress, // person recieving
+        pub value: u256 // amount
     }
     #[derive(Drop, starknet::Event)]
     pub struct Approval {
-        pub owner: ContractAddress,
-        pub spender: ContractAddress,
-        pub value: u256,
+        pub owner: ContractAddress, // account owner
+        pub spender: ContractAddress, // person account owner gives right to make transfers
+        pub value: u256 // amount
     }
-    #[external(v0)]
+
+    #[abi(embed_v0)]
     impl ERC20IMPL of super::IERC20<ContractState> {
         // create token for testing
         fn mint(ref self: ContractState, account: ContractAddress, amount: u256) {
             self.balances.write(account, amount)
         }
+
         //get the name of the contract
         fn get_name(self: @ContractState) -> ByteArray {
             self.name.read()
         }
+
         //get the symbol of the contract
         fn get_symbol(self: @ContractState) -> ByteArray {
             self.symbol.read()
         }
+
         //get the decimals
         fn get_decimals(self: @ContractState) -> u8 {
             self.decimals.read()
         }
+
         //get the max/total supply
         fn get_total_supply(self: @ContractState) -> u256 {
             self.total_supply.read()
         }
+
         // get the balance of a contract
         fn balance_of(self: @ContractState, account: ContractAddress) -> u256 {
             self.balances.read(account)
@@ -100,16 +108,16 @@ pub mod ERC20 {
             let sender = starknet::get_caller_address();
             self.transfer_from(sender, recipient, amount)
         }
-        //transfer with two argument sender and recipient
+
+        //transfer (amount) from (sender) to (recipient)
         fn transfer_from(
             ref self: ContractState,
             sender: ContractAddress,
             recipient: ContractAddress,
-            amount: u256
+            amount: u256,
         ) {
-            //get the address of the person calling the contract
+            //get the address of the person calling the contract/contract caller
             let caller = starknet::get_caller_address();
-
             let sender_balance = self.balances.read(sender);
             let recipient_balance = self.balances.read(recipient);
             assert!(sender_balance >= amount, "ERROR: INSUFFICIENT BALANCE");
@@ -124,7 +132,9 @@ pub mod ERC20 {
 
         // approve a contract to spend your token
         fn approve(ref self: ContractState, spender: ContractAddress, amount: u256) {
+            // caller of contract
             let caller = starknet::get_caller_address();
+            // caller of the contract & person authorized to spend money
             let allowed_person = (caller, spender);
             let previous_allowance = self.allowances.read(allowed_person);
             self.allowances.write(allowed_person, previous_allowance + amount);
@@ -133,27 +143,33 @@ pub mod ERC20 {
 
         //Increases the allowance
         fn increase_allowance(
-            ref self: ContractState, spender: ContractAddress, added_value: u256
+            ref self: ContractState, spender: ContractAddress, added_value: u256,
         ) {
+            // caller of the contract
             let caller = starknet::get_caller_address();
+            // caller of the contract & person authorized to spend money
             let allowed_person = (caller, spender);
             let previous_allowance = self.allowances.read(allowed_person);
             self.allowances.write(allowed_person, previous_allowance + added_value);
             self.emit(Approval { owner: caller, spender, value: added_value });
         }
+
         //reduces the allowance
         fn decrease_allowance(
-            ref self: ContractState, spender: ContractAddress, subtracted_value: u256
+            ref self: ContractState, spender: ContractAddress, subtracted_value: u256,
         ) {
+            // caller of contract
             let caller = starknet::get_caller_address();
+            // caller/owner of contract & person authorized to spend money
             let allowed_person = (caller, spender);
             let previous_allowance = self.allowances.read(allowed_person);
             self.allowances.write(allowed_person, previous_allowance - subtracted_value);
             self.emit(Approval { owner: caller, spender, value: subtracted_value });
         }
+
         //gets the amount a third party contract is allowed to spend
         fn allowance(
-            self: @ContractState, owner: ContractAddress, spender: ContractAddress
+            self: @ContractState, owner: ContractAddress, spender: ContractAddress,
         ) -> u256 {
             self.allowances.read((owner, spender))
         }
